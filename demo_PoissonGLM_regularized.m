@@ -5,19 +5,22 @@
 
 addpath nlfuns
 addpath loglifuns
+addpath utils
+
 clear;  % clear memory
 
 %% 1. Make simulated dataset =============
 
 dtbin = .01; % bin size for representing time (s)
 
-nw = 20;  % number of weights
+nw = 100;  % number of weights
 
 % Create stimulus 
-nsec = 50;   % stimulus length 
-nsampsTrain = round(nsec/dtbin);  % number of bins for training data
+nsecTrain = 100;   % stimulus length 
+nsampsTrain = round(nsecTrain/dtbin);  % number of bins for training data
 nsampsTest = 1e6;  % pick large value for size of test set
-Xtrain = randn(nsampsTrain,nw); % training stimulus 
+
+Xtrain = make1Fstimuli(nw,nsampsTrain,2); % training stimulus 
 Xtest = randn(nsampsTest,nw); % test stimulus 
 
 % Generate weights
@@ -43,7 +46,7 @@ switch nonlinearityTYPE
 
     % adjust model-specific params
     bias = 1.5; % Set bias
-    wts = wts./norm(wts)*3; % set weight amplitude
+    wts = wts./norm(wts)*2; % set weight amplitude
 end
 
 % Simulate response (training data)
@@ -67,7 +70,7 @@ box off; title('true weights'); xlabel('bins');
 subplot(223);  % plot nonlinearity
 xx = min(filteroutputTrain):.1:max(filteroutputTrain);
 plot(xx,fnlin(xx));  box off; 
-title('nonlinearity'); xlabel('filter output'); ylabel('firing rate (sp/s)');
+title('true nonlinearity'); xlabel('filter output'); ylabel('firing rate (sp/s)');
 
 subplot(222);  % plot firing rate
 tt = 1:min(nsampsTrain,1/dtbin); % time bins to plot
@@ -101,6 +104,7 @@ prsML = fminunc(lossfun,prs0,opts);
 wMLp1 = prsML(1:nw);  % ML estmate of weights given p=1
 bMLp1 = prsML(nw+1);  % ML estimate of bias b given p=1
 
+
 %% === 3. MAP fit with p=1 across diff levels of regularization =========================================
 
 diagvals = ones(nw,1)*[-1 2 -1];  % values needed for graph laplacian matrix
@@ -110,72 +114,127 @@ CgraphLapl(nw,1) = -1; % fix corners
 Cmat = [CgraphLapl, sparse(nw,1); sparse(1,nw+1)];  % add row & column of zeros for bias term
 
 % Set up grid of lambda values (regularization strength parameters)
-lamvals = 2.^(-5:10); % it's common to use a log-spaced set of values
+lamvals = 2.^(-2:12); % it's common to use a log-spaced set of values
 nlam = length(lamvals);
 
 % Allocate space for train and test errors
 LLtrain = zeros(nlam,1);  % training log-likelihood
 LLtest = zeros(nlam,1);   % test log-likelihood
-prs_reg = zeros(nw+1,nlam); % parameters for each lambda
+prs_MAP = zeros(nw+1,nlam); % parameters for each lambda
 
 % Define train and test log-likelihood funcs
 negLtrainfun = @(prs)neglogli_PoissGLM(prs,Xmattrain,spsTrain,nlfun,dtbin); 
 negLtestfun  = @(prs)neglogli_PoissGLM(prs,Xmattest,spsTest,nlfun,dtbin); 
 
 % Now compute MAP estimate for each ridge parameter
-prsMAP = prsML; % initialize parameter estimate with ML estimate
-clf; subplot(212); plot(ttw,ttw*0,'k--','linewidth',1); hold on; % initialize plot
+prsHat = prsML; % initialize parameter estimate with ML estimate
+subplot(224); cla; plot(ttw,ttw*0,'k--','linewidth',1); hold on; % initialize plot
 for jj = 1:nlam
 
     % Compute ridge-penalized MAP estimate
     Cinv = lamvals(jj)*Cmat; % set inverse prior covariance
     lossfun = @(prs)neglogposterior(prs,negLtrainfun,Cinv);
-    prsMAP = fminunc(lossfun,prsMAP,opts);
+    prsHat = fminunc(lossfun,prsHat,opts);
     
     % Compute negative logli
-    LLtrain(jj) = -negLtrainfun(prsMAP); % training loss
-    LLtest(jj) = -negLtestfun(prsMAP); % test loss
+    LLtrain(jj) = -negLtrainfun(prsHat); % training loss
+    LLtest(jj) = -negLtestfun(prsHat); % test loss
     
     % store the filter
-    prs_reg(:,jj) = prsMAP;
+    prs_MAP(:,jj) = prsHat;
     
     % plot it
-    subplot(211);
+    subplot(222);
     semilogx(lamvals(1:jj), LLtrain(1:jj)/nsampsTrain, '-o', lamvals(1:jj), LLtest(1:jj)/nsampsTest,'-*');
     box off; xlabel('lambda'); ylabel('log-likelihood per sample'); 
-    legend('train', 'test', 'location', 'northwest'); 
-    subplot(212);
-    plot(ttw,prsMAP(1:nw),'linewidth', 2); 
+    legend('train', 'test', 'location', 'southwest'); 
+    subplot(224);
+    plot(ttw,prsHat(1:nw),'linewidth', 2); 
     title(['smoothing estimate: lambda = ', num2str(lamvals(jj))]);
     xlabel('time before spike (s)'); drawnow; 
 end
 [~,jjmax] = max(LLtest);
-subplot(211); 
+lambda = lamvals(jjmax);
+prs_map1 = prs_MAP(:,jjmax);
+w_map1 = prs_map1(1:nw);
+b_map1 = prs_map1(nw+1);
+
+subplot(222); 
 hold on;
 semilogx(lamvals(jjmax),LLtest(jjmax)/nsampsTest,'kd'); hold off;
 title('train and test log-likelihood');
-subplot(212); 
-plot(ttw,prs_reg(1:nw,jjmax),'k--', 'linewidth', 3);
+subplot(224); 
+plot(ttw,w_map1,'k--', 'linewidth', 3); hold off;
+drawnow;
+
+%% === 4. Fit GLM weights for a grid of p values w/ fixed regularization ====================
+
+% Set grid of p values to consider
+pgrid = 0.3:.1:4;
+npgrid = length(pgrid);
+
+Cinv = lambda*Cmat;  % set regularization matrix
+
+prsHat = zeros(nw+1,npgrid); % store fit at each p value
+testLLgivenp = zeros(npgrid,1); % test LL
+prs0 = prs_map1; % initialize weights from exp fit
+fprintf('----- fitting weights for grid over p ------ \n');
+for jj = 1:npgrid
+
+    % -- Make loss function and minimize -----
+    pval = pgrid(jj);
+    nlfun = @(x)gnlzsoftplusfun(x,pval);  % set nonlinearity
+
+    % Define train and test log-likelihood funcs
+    negLtrainfun = @(prs)neglogli_PoissGLM(prs,Xmattrain,spsTrain,nlfun,dtbin);
+    negLtestfun  = @(prs)neglogli_PoissGLM(prs,Xmattest,spsTest,nlfun,dtbin);
+
+    % Define negative log posterior 
+    lossfun = @(prs)neglogposterior(prs,negLtrainfun,Cinv);
+    prsMAPgivenp = fminunc(lossfun,prs0,opts);  % find MAP weights for this value of p
+
+    
+    prsHat(:,jj) = prsMAPgivenp;
+    testLLgivenp(jj) = -negLtestfun(prsMAPgivenp);
+
+    % initialize next fit from current fit
+    prs0 = prsMAPgivenp;
+    if mod(jj,1)==0
+        fprintf('(iter %d, p=%.1f): neglogli = %.2f\n', jj,pval,testLLgivenp(jj));
+    end
+end
+
+%%
+
+% Select p using the maximum of test log-likelihood
+[~,jjmax] = max(testLLgivenp);  % find minimal value of loss
+wMLjoint = prsHat(1:nw,jjmax);  % extract weights
+bMLjoint = prsHat(nw+1,jjmax);  % extract bias b
+powML = pgrid(jjmax);  % extract power p
+
+subplot(222);
+plot(pgrid,testLLgivenp,'-o',powML,testLLgivenp(jjmax),'k*'); box off; title('test log-likelihood vs power p');
+xlabel('power p'); ylabel('negative log-li');
 
 
-% %% ==== 5. Make figs and print results ============
-% 
-% % Report result
-% fprintf('\n------ Fitting Results -------\n')
-% fprintf('True vs softplus (p=1):  corr coeff= %.2f\n', corr(wts,wMLp1));
-% %fprintf('   True vs joint:  corr coeff= %.2f\n', corr(wts,wMLjoint));
-% fprintf('\n    b true: %.2f\n',bias);
-% fprintf('b ML (p=1): %.2f\n',bMLp1);
-% %fprintf('   b-joint: %.2f\n',bMLjoint);
-% 
-% % Make plots
-% subplot(224);
-% ttw = 1:nw;
-% plot(ttw,wts./norm(wts),ttw,wMLp1./norm(wMLp1));
-% axis tight;
-% xlabel('time bin'); ylabel('coefficient');
-% title('normalized true and inferred weights');
-% legend('true','ML(p=1)');
-% 
-% %fprintf('\ntrue vs inferred power p:  %.2f, %.2f\n', ptrue,powML);
-% 
+%% ==== 5. Make figs and print results ============
+
+% Report result
+fprintf('\n------ Fitting Results -------\n')
+fprintf('True vs softplus (p=1):  corr coeff= %.2f\n', corr(wts,w_map1));
+fprintf('   True vs joint:  corr coeff= %.2f\n', corr(wts,wMLjoint));
+fprintf('\n    b true: %.2f\n',bias);
+fprintf('b ML (p=1): %.2f\n',bMLp1);
+fprintf('   b-joint: %.2f\n',bMLjoint);
+
+% Make plots
+subplot(224);
+ttw = 1:nw;
+plot(ttw,wts./norm(wts),ttw,w_map1./norm(w_map1), ttw,wMLjoint./norm(wMLjoint));
+axis tight;
+xlabel('time bin'); ylabel('coefficient');
+title('normalized true and inferred weights');
+legend('true','MAP(p=1)','MAP');
+
+fprintf('\ntrue vs inferred power p:  %.2f, %.2f\n', ptrue,powML);
+

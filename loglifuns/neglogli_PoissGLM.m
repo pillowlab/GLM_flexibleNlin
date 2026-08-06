@@ -46,7 +46,6 @@ switch nargout
         
         % Hessian
         bb = ddf*dtbin-Yvec.*(ddf./f-(df./f).^2); % weights for Hessian
-        %ddL = Xmat'*bsxfun(@times,Xmat,bb);
         ddL = Xmat' * (bb .* Xmat);
 
 end

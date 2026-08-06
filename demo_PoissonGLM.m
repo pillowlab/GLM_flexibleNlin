@@ -14,7 +14,7 @@ dtbin = .01; % bin size for representing time (s)
 nw = 100;  % number of weights
 
 % Create stimulus 
-nsec = 100;   % stimulus length 
+nsec = 1000;   % stimulus length 
 nsamps = round(nsec/dtbin);  % number of bins
 X = randn(nsamps,nw); % stimulus 
 
@@ -90,7 +90,7 @@ opts = optimoptions('fminunc','algorithm','trust-region','SpecifyObjectiveGradie
 % -- Make loss function and minimize -----
 lossfunexp = @(w)neglogli_poissGLM_expnlin(w,Xmat,sps,dtbin); % set negative log-likelihood as loss func
 prs0 = randn(nw+1,1)*.1;  % initialize weights randomly
-prsMLexp = fminunc(lossfunexp,prs0,opts);
+tic; prsMLexp = fminunc(lossfunexp,prs0,opts); toc;
 
 wMLexp = prsMLexp(1:nw);  % ML estimate of weights under exp nonlinearity
 bMLexp = prsMLexp(nw+1);  % ML estimate of bias b under exp nonlinearity
@@ -102,21 +102,22 @@ nlfun = @(x)gnlzsoftplusfun(x,ptrue);  % set nonlinearity
 lossfunsp = @(w)neglogli_PoissGLM(w,Xmat, sps,nlfun,dtbin); % negative log-li fun
 prs0 = prsMLexp; % initialize weights from exp fit
 %prs0 = [wts;bias]; % initialize weights from ground truth
-prsMLsp = fminunc(lossfunsp,prs0,opts);
+tic; prsMLsp = fminunc(lossfunsp,prs0,opts); toc;
 
 wMLsp = prsMLsp(1:nw); % ML estimate of weights under (true) softplus nonlinearity
 bMLsp = prsMLsp(nw+1); % ML estimate of bias under (true) softplus nonlinearity
 
 %% === 4. Fit poisson GLM using generalized-softplus nonlinearity for a grid of p values ====================
 
+% Set grid of values for power p
 pgrid = 0.3:.1:4;
-ngrid = length(pgrid);
+npgrid = length(pgrid);
 
-prsHat = zeros(nw+1,ngrid);
-lossgrid = zeros(ngrid,1);
+prsHat = zeros(nw+1,npgrid);  % estimated params for each p
+lossgrid = zeros(npgrid,1);  % negative log-likelihood 
 prs0 = prsMLexp; % initialize weights from exp fit
 fprintf('----- fitting weights for grid over p ------ \n');
-for jj = 1:ngrid
+for jj = 1:npgrid
 
     % -- Make loss function and minimize -----
     pval = pgrid(jj);
@@ -128,13 +129,13 @@ for jj = 1:ngrid
 
     % initialize next fit from current fit
     prs0 = prsML;
-    if mod(jj,5)==0
+    if mod(jj,1)==0
         fprintf('(iter %d, p=%.1f): neglogli = %.2f\n', jj,pval,lossgrid(jj));
     end
 end
   
 subplot(222);
-plot(pgrid,lossgrid,'-o'); box off;
+plot(pgrid,lossgrid,'-o'); box off; title('log-likelihood vs power p');
 xlabel('power p'); ylabel('negative log-li');
 
 % Select p using the minimum of negative log-likelihood

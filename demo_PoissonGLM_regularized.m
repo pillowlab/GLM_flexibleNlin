@@ -3,10 +3,7 @@
 % Simulate and recover weights from a Poisson GLM generalized-softplus
 % nonlinearity using regularization 
 
-addpath nlfuns
-addpath loglifuns
-addpath utils
-
+setpath;  % add necessary paths
 clear;  % clear memory
 
 %% 1. Make simulated dataset =============
@@ -20,8 +17,9 @@ nsecTrain = 100;   % stimulus length
 nsampsTrain = round(nsecTrain/dtbin);  % number of bins for training data
 nsampsTest = 1e6;  % pick large value for size of test set
 
-Xtrain = make1Fstimuli(nw,nsampsTrain,2); % training stimulus 
-Xtest = randn(nsampsTest,nw); % test stimulus 
+%Xtrain = make1Fstimuli(nw,nsampsTrain,2); % training stimulus 
+Xtrain = randn(nsampsTrain,nw); % training stimulus 
+Xtest = make1Fstimuli(nw,nsampsTest,2); % training stimulus 
 
 % Generate weights
 sigsmooth = 2.5;  % sigma for smoothing true weights
@@ -107,11 +105,9 @@ bMLp1 = prsML(nw+1);  % ML estimate of bias b given p=1
 
 %% === 3. MAP fit with p=1 across diff levels of regularization =========================================
 
-diagvals = ones(nw,1)*[-1 2 -1];  % values needed for graph laplacian matrix
-CgraphLapl = spdiags(diagvals, -1:1, nw,nw);
-CgraphLapl(1,nw) = -1; % fix corners
-CgraphLapl(nw,1) = -1; % fix corners
-Cmat = [CgraphLapl, sparse(nw,1); sparse(1,nw+1)];  % add row & column of zeros for bias term
+Circflag = 1; % flag to indicate circular parameter vector
+DCflag = 1; % flag to indicate adding a column and row of zeros, for dc weight
+Cmat = mkPrecision_graphLapl_circ(nw,DCflag);  % make graph Laplacian matrix
 
 % Set up grid of lambda values (regularization strength parameters)
 lamvals = 2.^(-2:12); % it's common to use a log-spaced set of values

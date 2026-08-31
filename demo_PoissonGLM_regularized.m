@@ -13,13 +13,22 @@ dtbin = .01; % bin size for representing time (s)
 nw = 100;  % number of weights
 
 % Create stimulus 
-nsecTrain = 100;   % stimulus length 
+nsecTrain = 25;   % stimulus length 
 nsampsTrain = round(nsecTrain/dtbin);  % number of bins for training data
 nsampsTest = 1e6;  % pick large value for size of test set
 
-%Xtrain = make1Fstimuli(nw,nsampsTrain,2); % training stimulus 
-Xtrain = randn(nsampsTrain,nw); % training stimulus 
-Xtest = make1Fstimuli(nw,nsampsTest,2); % training stimulus 
+IIDTRAIN = 1;  % flag to set training data
+if IIDTRAIN
+    % Use Gaussian white noise for train
+    Xtrain = randn(nsampsTrain,nw); % training stimulus
+else
+    % Use correlated 1/F stimuli for training
+    Xtrain = make1Fstimuli(nw,nsampsTrain,2); % training stimulus
+end
+
+% Set test stimuli
+%Xtest = make1Fstimuli(nw,nsampsTest,2); % test stimulus 
+Xtest = randn(nsampsTest,nw); % test stimulus 
 
 % Generate weights
 sigsmooth = 2.5;  % sigma for smoothing true weights
@@ -27,7 +36,7 @@ gfilt = normpdf((1:nw)',nw/2,sigsmooth);  % Gaussian smoothing filter
 wts = real(ifft(fft(randn(nw,1)).*fft(gfilt)));  % generate random smooth weights
 
 % Set up nonlinearity
-nonlinearityTYPE = 2;  % (1 = softplus p=0.6, 2 = softplus p=2)
+nonlinearityTYPE = 1;  % (1 = softplus p=0.6, 2 = softplus p=2)
 switch nonlinearityTYPE
 
     case 1 % ---- set nonlinearity to softplus p = 0.6 -------
@@ -82,7 +91,7 @@ fprintf('------Simulated dataset-------\n')
 fprintf('number of bins: %d\n',nsampsTrain);
 fprintf('max spike rate: %.1f sp/s\n',max(rateTrain));
 fprintf('total spikes:  %d\n', sum(spsTrain));
-
+fprintf('condition # of design matrix = %.1f\n',cond(Xtrain));
 
 %% === 2. ML fit poisson GLM using true generalized-softplus nonlinearity with p=1 ====================
 
@@ -125,6 +134,7 @@ negLtestfun  = @(prs)neglogli_PoissGLM(prs,Xmattest,spsTest,nlfun,dtbin);
 % Now compute MAP estimate for each ridge parameter
 prsHat = prsML; % initialize parameter estimate with ML estimate
 subplot(224); cla; plot(ttw,ttw*0,'k--','linewidth',1); hold on; % initialize plot
+fprintf('\nSelecting regularization strength using grid of lambda values...\n\n');
 for jj = 1:nlam
 
     % Compute ridge-penalized MAP estimate
@@ -166,15 +176,15 @@ drawnow;
 %% === 4. Fit GLM weights for a grid of p values w/ fixed regularization ====================
 
 % Set grid of p values to consider
-pgrid = 0.3:.1:4;
+pgrid = .5:.1:5;
 npgrid = length(pgrid);
 
 Cinv = lambda*Cmat;  % set regularization matrix
 
 prsHat = zeros(nw+1,npgrid); % store fit at each p value
-testLLgivenp = zeros(npgrid,1); % test LL
+trainLLgivenp = zeros(npgrid,1); % test LL
 prs0 = prs_map1; % initialize weights from exp fit
-fprintf('----- fitting weights for grid over p ------ \n');
+fprintf('Fitting weights for a grid of p values ...\n');
 for jj = 1:npgrid
 
     % -- Make loss function and minimize -----
@@ -183,33 +193,31 @@ for jj = 1:npgrid
 
     % Define train and test log-likelihood funcs
     negLtrainfun = @(prs)neglogli_PoissGLM(prs,Xmattrain,spsTrain,nlfun,dtbin);
-    negLtestfun  = @(prs)neglogli_PoissGLM(prs,Xmattest,spsTest,nlfun,dtbin);
 
     % Define negative log posterior 
     lossfun = @(prs)neglogposterior(prs,negLtrainfun,Cinv);
     prsMAPgivenp = fminunc(lossfun,prs0,opts);  % find MAP weights for this value of p
 
-    
     prsHat(:,jj) = prsMAPgivenp;
-    testLLgivenp(jj) = -negLtestfun(prsMAPgivenp);
+    trainLLgivenp(jj) = -lossfun(prsMAPgivenp);
 
     % initialize next fit from current fit
     prs0 = prsMAPgivenp;
-    if mod(jj,1)==0
-        fprintf('(iter %d, p=%.1f): neglogli = %.2f\n', jj,pval,testLLgivenp(jj));
+    if mod(jj,10)==0
+        fprintf('(iter %d, p=%.1f): neglogli = %.2f\n', jj,pval,trainLLgivenp(jj));
     end
 end
 
 %%
 
 % Select p using the maximum of test log-likelihood
-[~,jjmax] = max(testLLgivenp);  % find minimal value of loss
+[~,jjmax] = max(trainLLgivenp);  % find minimal value of loss
 wMLjoint = prsHat(1:nw,jjmax);  % extract weights
 bMLjoint = prsHat(nw+1,jjmax);  % extract bias b
 powML = pgrid(jjmax);  % extract power p
 
-subplot(222);
-plot(pgrid,testLLgivenp,'-o',powML,testLLgivenp(jjmax),'k*'); box off; title('test log-likelihood vs power p');
+subplot(221);
+plot(pgrid,trainLLgivenp,'-o',powML,trainLLgivenp(jjmax),'k*'); box off; title('(training) log-likelihood vs power p');
 xlabel('power p'); ylabel('negative log-li');
 
 

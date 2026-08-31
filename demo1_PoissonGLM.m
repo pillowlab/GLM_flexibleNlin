@@ -114,9 +114,9 @@ pgrid = 0.3:.1:4;
 npgrid = length(pgrid);
 
 prsHat = zeros(nw+1,npgrid);  % estimated params for each p
-lossgrid = zeros(npgrid,1);  % negative log-likelihood 
+testLLgrid = zeros(npgrid,1);  % test log-likelihood 
 prs0 = prsMLexp; % initialize weights from exp fit
-fprintf('----- fitting weights for grid over p ------ \n');
+fprintf('\n----- fitting weights for grid over p ------ \n');
 for jj = 1:npgrid
 
     % -- Make loss function and minimize -----
@@ -125,47 +125,21 @@ for jj = 1:npgrid
     lossfunsp = @(w)neglogli_PoissGLM(w,Xmat, sps,nlfun,dtbin); % negative log-li fun
     prsML = fminunc(lossfunsp,prs0,opts);
     prsHat(:,jj) = prsML;
-    lossgrid(jj) = lossfunsp(prsML);
+    testLLgrid(jj) = -lossfunsp(prsML);
 
     % initialize next fit from current fit
     prs0 = prsML;
-    if mod(jj,1)==0
-        fprintf('(iter %d, p=%.1f): neglogli = %.2f\n', jj,pval,lossgrid(jj));
+    if mod(jj,5)==0
+        fprintf('(iter %d, p=%.1f): neglogli = %.2f\n', jj,pval,testLLgrid(jj));
     end
 end
   
-subplot(222);
-plot(pgrid,lossgrid,'-o'); box off; title('log-likelihood vs power p');
-xlabel('power p'); ylabel('negative log-li');
 
 % Select p using the minimum of negative log-likelihood
-[~,jjmin] = min(lossgrid);  % find minimal value of loss
-wMLjoint = prsHat(1:nw,jjmin);  % extract weights
-bMLjoint = prsHat(nw+1,jjmin);  % extract bias b
-powML = pgrid(jjmin);  % extract power p
-
-% %% === 5. Alternatively, let's see if we can recover the weights AND the power p via joint optimization ===================
-% 
-% % initialize parameters
-% pow0 = 1;  % initial value of power
-% prs0 = prsMLexp; % initialize weights from exp fit
-% 
-% % -- Make loss function under softplus nonlinearity and minimize for weights-----
-% nlfun0 = @(x)gnlzsoftplusfun(x,pow0);  % set nonlinearity
-% lossfun_wts = @(w)neglogli_PoissGLM(w,Xmat,sps,nlfun0,dtbin); % negative log-li fun
-% prshat0 = fminunc(lossfun_wts,prs0,opts);
-% 
-% jointprs0 = [prshat0;pow0];
-% 
-% % -- Make loss function and minimize jointly for weights and power p -----
-% lossfun_joint = @(wnl)neglogli_PoissGLM_wts_and_nlin(wnl,Xmat,sps,@gnlzsoftplusfun,dtbin); % negative log-li fun
-% opts1 = optimoptions('fminunc','display','iter','MaxFunctionEvaluations',1e5);
-% jointprs_hat= fminunc(lossfun_joint,jointprs0,opts1);
-% 
-% wMLjoint = jointprs_hat(1:nw);
-% bMLjoint = jointprs_hat(nw+1);
-% powML = jointprs_hat(end);
-
+[~,jjmax] = max(testLLgrid);  % find minimal value of loss
+wMLjoint = prsHat(1:nw,jjmax);  % extract weights
+bMLjoint = prsHat(nw+1,jjmax);  % extract bias b
+powML = pgrid(jjmax);  % extract power p
 
 %% ==== 5. Make figs and print results ============
 
@@ -178,6 +152,11 @@ fprintf('\n    b true: %.2f\n',bias);
 fprintf('     b-exp: %.2f\n',bMLexp);
 fprintf('b-softplus: %.2f\n',bMLsp);
 fprintf('   b-joint: %.2f\n',bMLjoint);
+
+subplot(222);
+plot(pgrid,testLLgrid,'-o',pgrid(jjmax),testLLgrid(jjmax),'k*'); box off; title('log-likelihood vs power p');
+xlabel('power p'); ylabel('log-li');
+
 
 % Make plots
 subplot(224);

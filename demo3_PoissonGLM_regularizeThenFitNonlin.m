@@ -1,10 +1,10 @@
 % demo3_PoissonGLM_regularizeThenFitNonlin.m
 %
-% Simulate from Poisson GLM, then set regularization strength via
-% cross-validation, then estimate nonlinearity parameter p with this
-% regularization level
+% Set regularization strength via cross-validation, then estimate nonlinearity parameter p with this
+% regularization level 
+% 
+% Note: illustrates systematic bias toward large p when dataset size is small
 
-% Illustrates systematic bias toward large p when dataset size is small
 setpath;  % add necessary paths
 clear;  % clear memory
 
@@ -19,7 +19,7 @@ nsecTrain = 10;   % stimulus length
 nsampsTrain = round(nsecTrain/dtbin);  % number of bins for training data
 nsampsTest = 1e6;  % pick large value for size of test set
 
-IIDTRAIN = 0;  % flag to set training data
+IIDTRAIN = 1;  % flag to set training data
 if IIDTRAIN
     % Use Gaussian white noise for train
     Xtrain = randn(nsampsTrain,nw); % training stimulus
@@ -154,8 +154,8 @@ for jj = 1:nlam
     % plot it
     subplot(221);
     semilogx(lamvals(1:jj), LLtrain(1:jj)/nsampsTrain, '-o', lamvals(1:jj), LLtest(1:jj)/nsampsTest,'-*');
-    box off; xlabel('lambda'); ylabel('log-likelihood per sample'); 
-    legend('train', 'test', 'location', 'southwest'); 
+    box off; xlabel('lambda'); ylabel('log-likelihood (per sample)'); 
+    legend('train', 'test', 'location', 'southeast'); 
     subplot(224);
     plot(ttw,prsHat(1:nw),'linewidth', 2); 
     title(['smoothing estimate: lambda = ', num2str(lamvals(jj))]);
@@ -220,7 +220,7 @@ powML = pgrid(jjmax);  % extract power p
 
 subplot(222);
 plot(pgrid,trainLLgivenp,'-o',powML,trainLLgivenp(jjmax),'k*'); box off; title('(training) log-likelihood vs power p');
-xlabel('power p'); ylabel('negative log-li');
+xlabel('power p'); ylabel('log-likelihood');
 
 
 %% ==== 5. Make figs and print results ============

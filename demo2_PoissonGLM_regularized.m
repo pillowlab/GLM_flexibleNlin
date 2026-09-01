@@ -153,8 +153,8 @@ for jj = 1:nlam
     % plot it
     subplot(221);
     semilogx(lamvals(1:jj), LLtrain(1:jj)/nsampsTrain, '-o', lamvals(1:jj), LLtest(1:jj)/nsampsTest,'-*');
-    box off; xlabel('lambda'); ylabel('log-likelihood per sample'); 
-    legend('train', 'test', 'location', 'southwest'); 
+    box off; xlabel('lambda'); ylabel('log-likelihood (per sample)'); 
+    legend('train', 'test', 'location', 'southeast'); 
     subplot(223);
     plot(ttw,prsHat(1:nw),'linewidth', 2); 
     title(['smoothing estimate: lambda = ', num2str(lamvals(jj))]);
